@@ -29,6 +29,7 @@ CLI:
     python prep.py light 0 80 255 0          # enclosure RGBW (0-255)
     python prep.py axes                      # home-sensor state of every axis
     python prep.py home                      # home all axes (asks for confirmation)
+    python prep.py home --allow-door-open    # ...even with the enclosure door open
 """
 from __future__ import annotations
 
@@ -214,23 +215,24 @@ class Prep:
                 out.update({f"{side.title()} {name}": bool(ch.get(k)) for k, name in parts})
         return out
 
-    def home_preflight(self) -> list[str]:
-        """Reasons it is not safe to home right now (empty list = OK)."""
+    def home_preflight(self, allow_door_open: bool = False) -> list[str]:
+        """Reasons it is not safe to home right now (empty list = OK).
+        allow_door_open skips the door check (the instrument may still enforce its own interlock)."""
         problems = []
         if self.global_state() != "Idle":
             problems.append(f"instrument is not Idle ({self.global_state()})")
         s = self.sensors()
-        if s.get("isEnclosurePresent") and not s.get("isDoorClosed"):
+        if s.get("isEnclosurePresent") and not s.get("isDoorClosed") and not allow_door_open:
             problems.append("enclosure door is open")
         if self.pending_errors():
             problems.append("there are pending errors - handle them first")
         return problems
 
-    def home_all(self, wait: bool = True, timeout: float = 180,
+    def home_all(self, wait: bool = True, timeout: float = 180, allow_door_open: bool = False,
                  on_tick: Callable[[dict[str, bool]], None] | None = None) -> dict[str, bool]:
         """Home every axis (the API only exposes a whole-instrument initialize, not per-axis homing).
         Raises RuntimeError if preflight fails. Returns the final axis map."""
-        problems = self.home_preflight()
+        problems = self.home_preflight(allow_door_open)
         if problems:
             raise RuntimeError("not homing: " + "; ".join(problems))
         done = threading.Event()
@@ -420,6 +422,7 @@ def main(argv=None):
     sub.add_parser("light-auto")
     sub.add_parser("axes")
     hp = sub.add_parser("home"); hp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    hp.add_argument("--allow-door-open", action="store_true", help="home even if the enclosure door is open")
     a = ap.parse_args(argv)
     p = Prep(a.ip)
 
@@ -478,9 +481,12 @@ def main(argv=None):
         print(f"door {'closed' if s.get('isDoorClosed') else 'OPEN'}  parked={p.is_parked()}  tips={p.has_tips()}  power-initialized={p.power_ready()}")
     elif a.cmd == "home":
         _print_axes(p.axes())
-        problems = p.home_preflight()
+        problems = p.home_preflight(a.allow_door_open)
         if problems:
-            sys.exit("not homing: " + "; ".join(problems))
+            sys.exit("not homing: " + "; ".join(problems) + ("  (use --allow-door-open to override)" if any("door" in x for x in problems) else ""))
+        door_open = not p.sensors().get("isDoorClosed")
+        if door_open:
+            print("WARNING: the door is OPEN - keep hands and objects out of the deck.")
         if not a.yes and input("Home ALL axes? The gantry and channels will move. Type HOME: ").strip() != "HOME":
             print("cancelled"); return
         last = [None]
@@ -488,7 +494,7 @@ def main(argv=None):
             line = "  ".join(f"{k}:{'ok' if v else '..'}" for k, v in ax.items())
             if line != last[0]:
                 print(time.strftime("%H:%M:%S"), line, flush=True); last[0] = line
-        final = _authed(p, lambda: p.home_all(on_tick=tick))
+        final = _authed(p, lambda: p.home_all(on_tick=tick, allow_door_open=a.allow_door_open))
         missing = [k for k, v in final.items() if not v]
         print("all axes home" if not missing else f"initialize returned, but not at home sensor: {', '.join(missing)}")
 

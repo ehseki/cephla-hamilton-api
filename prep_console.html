@@ -267,7 +267,8 @@ dialog pre{max-height:320px;overflow:auto;background:var(--panel2);padding:10px;
 <dialog id="dlgHome"><form method="dialog">
   <h3>Home all axes</h3>
   <div class="body">
-    <span><span class="danger-note">The gantry and both channels will move to their home positions.</span> Keep hands out of the deck. The door must be closed.</span>
+    <span><span class="danger-note">The gantry and both channels will move to their home positions.</span> Keep hands out of the deck.</span>
+    <label class="toggle" id="hmDoorRow" hidden><input type="checkbox" id="hmDoor"> <span class="danger-note">The door is open. Home anyway.</span></label>
     <input id="hmConfirm" placeholder="Type HOME to confirm" autocomplete="off">
   </div>
   <div class="foot"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn warn" id="hmGo" value="ok" disabled>Home now</button></div>
@@ -396,16 +397,20 @@ function renderAxes() {
   const busy = (S.run?.stateName || S.global) !== "Idle";
   const allHome = ax && Object.values(ax).every(Boolean);
   if (homing && allHome) { homing = false; toast("All axes home", "good"); }
-  $("#homeBtn").disabled = homing || busy || doorOpen || (S.errors || []).length > 0;
-  $("#homeNote").textContent = homing ? "Homing…" : doorOpen ? "Close the door to home." : busy ? "Instrument busy." :
-    (S.errors || []).length ? "Handle pending errors first." : allHome ? "All axes at home." : "Homes every axis in one go (the API has no per-axis homing).";
+  $("#homeBtn").disabled = homing || busy || (S.errors || []).length > 0;
+  $("#homeNote").textContent = homing ? "Homing…" : busy ? "Instrument busy." :
+    (S.errors || []).length ? "Handle pending errors first." : doorOpen ? "Door is open. You'll be asked to confirm." :
+    allHome ? "All axes at home." : "Homes every axis in one go (the API has no per-axis homing).";
 }
-$("#homeBtn").onclick = () => { $("#hmConfirm").value = ""; $("#hmGo").disabled = true; $("#dlgHome").showModal(); $("#hmConfirm").focus(); };
-$("#hmConfirm").oninput = e => $("#hmGo").disabled = e.target.value.trim() !== "HOME";
+const doorIsOpen = () => !!(S.sensors?.isEnclosurePresent && !S.sensors?.isDoorClosed);
+const homeReady = () => $("#hmConfirm").value.trim() === "HOME" && (!doorIsOpen() || $("#hmDoor").checked);
+$("#homeBtn").onclick = () => { $("#hmConfirm").value = ""; $("#hmDoor").checked = false; $("#hmDoorRow").hidden = !doorIsOpen();
+  $("#hmGo").disabled = true; $("#dlgHome").showModal(); $("#hmConfirm").focus(); };
+$("#hmConfirm").oninput = $("#hmDoor").onchange = () => $("#hmGo").disabled = !homeReady();
 $("#dlgHome").onclose = async () => {
   if ($("#dlgHome").returnValue !== "ok") return;
   homing = true; renderAxes();
-  try { await act("home", {}, "Homing started"); } catch { homing = false; renderAxes(); }
+  try { await act("home", {allowDoorOpen: $("#hmDoor").checked}, "Homing started"); } catch { homing = false; renderAxes(); }
 };
 
 /* ---------- protocols ---------- */

@@ -37,7 +37,8 @@ python prep.py pause | resume | abort
 python prep.py light 0 120 255 0      # enclosure R G B W
 python prep.py light-auto
 python prep.py axes                   # home sensor for every axis, plus door/tips/power
-python prep.py home                   # home all axes (checks door/idle/errors, asks you to type HOME)
+python prep.py home                   # home all axes (checks idle/errors/door, asks you to type HOME)
+python prep.py home --allow-door-open
 ```
 
 ## Library
@@ -54,7 +55,7 @@ p.stream(lambda ch, msg: print(ch, msg))
 
 `GET /service-software-api/sensor-status` reports a home sensor for each axis: X, then Y, Z, squeeze and dispenser on each fitted head (front/rear independent channels, and the MPH if present). The cockpit's **Axes** panel shows them live.
 
-The API has **no per-axis homing**. `POST /instruments/initialize` homes everything at once, so both the CLI and the cockpit do "home all". They refuse to start unless the instrument is Idle, the door is closed and there are no pending errors.
+The API has **no per-axis homing**. `POST /instruments/initialize` homes everything at once, so both the CLI and the cockpit do "home all". They refuse to start unless the instrument is Idle and there are no pending errors. With the door open you must opt in: `--allow-door-open` on the CLI, or the "Home anyway" checkbox in the cockpit. The instrument may still enforce its own door interlock.
 
 ## Gotchas found on the instrument
 

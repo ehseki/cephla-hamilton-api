@@ -126,8 +126,8 @@ class Console:
 def make_handler(console: Console):
     prep = console.prep
 
-    def start_home():
-        problems = prep.home_preflight()
+    def start_home(allow_door_open=False):
+        problems = prep.home_preflight(allow_door_open)
         if problems:
             raise RuntimeError("not homing: " + "; ".join(problems))
 
@@ -157,7 +157,7 @@ def make_handler(console: Console):
         "error-respond": lambda b: prep.respond_to_error(b["error"], b["response"]),
         "clear-errors": lambda b: prep.clear_errors(),
         "sim-speed":    lambda b: prep.simulation_speed(b["speed"]),
-        "home":         lambda b: start_home(),
+        "home":         lambda b: start_home(bool(b.get("allowDoorOpen"))),
     }
 
     class H(BaseHTTPRequestHandler):
