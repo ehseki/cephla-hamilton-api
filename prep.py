@@ -27,6 +27,8 @@ CLI:
     python prep.py run 1002 --real           # moves hardware; asks for confirmation
     python prep.py pause | resume | abort
     python prep.py light 0 80 255 0          # enclosure RGBW (0-255)
+    python prep.py axes                      # home-sensor state of every axis
+    python prep.py home                      # home all axes (asks for confirmation)
 """
 from __future__ import annotations
 
@@ -190,6 +192,74 @@ class Prep:
     def cleanup(self): return self.put("protocol-run/cleanup-unloading")
     def initialize(self): return self.post("instruments/initialize", timeout=180)
 
+    # ---------------------------------------------------------------- axes / homing
+    def sensors(self):     return self.get("service-software-api/sensor-status")
+    def is_parked(self):   return self.get("service-software-api/is-parked")
+    def has_tips(self):    return self.get("service-software-api/has-tips")
+    def power_ready(self): return self.get("power/is-initialized")
+
+    def axes(self, sensors: dict | None = None) -> dict[str, bool]:
+        """Home-sensor state per axis, e.g. {'X': True, 'Front Y': False, ...}.
+        Only heads that are fitted (MPH and/or independent channels) are listed."""
+        s = sensors if sensors is not None else self.sensors()
+        out = {"X": bool(s.get("isXHome"))}
+        parts = ("yHome", "Y"), ("zHome", "Z"), ("squeezeHome", "Squeeze"), ("dispenserHome", "Dispenser")
+        mph = s.get("mphSensorState") or {}
+        if mph.get("present"):
+            out.update({f"MPH {name}": bool(mph.get(k)) for k, name in parts})
+        ind = s.get("independentChannelsSensorState") or {}
+        if ind.get("present"):
+            for side in ("front", "rear"):
+                ch = ind.get(f"{side}Channel") or {}
+                out.update({f"{side.title()} {name}": bool(ch.get(k)) for k, name in parts})
+        return out
+
+    def home_preflight(self) -> list[str]:
+        """Reasons it is not safe to home right now (empty list = OK)."""
+        problems = []
+        if self.global_state() != "Idle":
+            problems.append(f"instrument is not Idle ({self.global_state()})")
+        s = self.sensors()
+        if s.get("isEnclosurePresent") and not s.get("isDoorClosed"):
+            problems.append("enclosure door is open")
+        if self.pending_errors():
+            problems.append("there are pending errors - handle them first")
+        return problems
+
+    def home_all(self, wait: bool = True, timeout: float = 180,
+                 on_tick: Callable[[dict[str, bool]], None] | None = None) -> dict[str, bool]:
+        """Home every axis (the API only exposes a whole-instrument initialize, not per-axis homing).
+        Raises RuntimeError if preflight fails. Returns the final axis map."""
+        problems = self.home_preflight()
+        if problems:
+            raise RuntimeError("not homing: " + "; ".join(problems))
+        done = threading.Event()
+        err: list[BaseException] = []
+
+        def go():
+            try:
+                self.initialize()
+            except BaseException as e:  # noqa: BLE001
+                err.append(e)
+            finally:
+                done.set()
+
+        threading.Thread(target=go, daemon=True).start()
+        if not wait:
+            return self.axes()
+        deadline = time.time() + timeout
+        while not done.wait(1.0):
+            if on_tick:
+                on_tick(self.axes())
+            if time.time() > deadline:
+                raise TimeoutError("initialize did not return in time")
+        if err:
+            raise err[0]
+        final = self.axes()
+        if on_tick:
+            on_tick(final)
+        return final
+
     def simulation_speed(self, speed: str | None = None):
         if speed is None:
             return self.get("protocol-run/simulation-speed")
@@ -327,6 +397,11 @@ def _fmt_status(st: dict) -> str:
             f"step={st.get('currentStep')}  eta={st.get('estimatedEndTime')}")
 
 
+def _print_axes(ax: dict[str, bool]) -> None:
+    for k, v in ax.items():
+        print(f"  {k:18} {'HOME' if v else 'not home'}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Hamilton Microlab Prep remote control")
     ap.add_argument("--ip", default=DEFAULT_IP)
@@ -343,6 +418,8 @@ def main(argv=None):
         sub.add_parser(c)
     lp = sub.add_parser("light"); [lp.add_argument(c, type=int) for c in "rgbw"]
     sub.add_parser("light-auto")
+    sub.add_parser("axes")
+    hp = sub.add_parser("home"); hp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     a = ap.parse_args(argv)
     p = Prep(a.ip)
 
@@ -395,6 +472,25 @@ def main(argv=None):
         _authed(p, lambda: p.set_enclosure_rgbw(a.r, a.g, a.b, a.w)); print("ok")
     elif a.cmd == "light-auto":
         _authed(p, p.auto_lighting); print("ok")
+    elif a.cmd == "axes":
+        _print_axes(p.axes())
+        s = p.sensors()
+        print(f"door {'closed' if s.get('isDoorClosed') else 'OPEN'}  parked={p.is_parked()}  tips={p.has_tips()}  power-initialized={p.power_ready()}")
+    elif a.cmd == "home":
+        _print_axes(p.axes())
+        problems = p.home_preflight()
+        if problems:
+            sys.exit("not homing: " + "; ".join(problems))
+        if not a.yes and input("Home ALL axes? The gantry and channels will move. Type HOME: ").strip() != "HOME":
+            print("cancelled"); return
+        last = [None]
+        def tick(ax):
+            line = "  ".join(f"{k}:{'ok' if v else '..'}" for k, v in ax.items())
+            if line != last[0]:
+                print(time.strftime("%H:%M:%S"), line, flush=True); last[0] = line
+        final = _authed(p, lambda: p.home_all(on_tick=tick))
+        missing = [k for k, v in final.items() if not v]
+        print("all axes home" if not missing else f"initialize returned, but not at home sensor: {', '.join(missing)}")
 
 
 if __name__ == "__main__":

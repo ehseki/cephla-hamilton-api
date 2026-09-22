@@ -88,6 +88,13 @@ class Console:
             except Exception as e:  # noqa: BLE001
                 out[key] = None
                 out.setdefault("problems", {})[key] = str(e)
+        try:
+            sensors = p.sensors()
+            out["sensors"] = sensors
+            out["axes"] = p.axes(sensors)
+        except Exception as e:  # noqa: BLE001
+            out["axes"] = None
+            out.setdefault("problems", {})["axes"] = str(e)
         if out.get("run"):
             out["run"]["stateName"] = run_state_name(out["run"].get("protocolRunState"))
         try:
@@ -119,6 +126,21 @@ class Console:
 def make_handler(console: Console):
     prep = console.prep
 
+    def start_home():
+        problems = prep.home_preflight()
+        if problems:
+            raise RuntimeError("not homing: " + "; ".join(problems))
+
+        def go():
+            try:
+                prep.initialize()
+                ax = prep.axes()
+                console.hub.publish("console", {"code": "home-finished", "axes": ax,
+                                                "missing": [k for k, v in ax.items() if not v]})
+            except Exception as e:  # noqa: BLE001
+                console.hub.publish("system", {"code": "home-failed", "error": str(getattr(e, "body", e))})
+        threading.Thread(target=go, daemon=True).start()
+
     actions = {
         "login":        lambda b: prep.login(b["username"], b["password"]),
         "logout":       lambda b: prep.logout(),
@@ -135,6 +157,7 @@ def make_handler(console: Console):
         "error-respond": lambda b: prep.respond_to_error(b["error"], b["response"]),
         "clear-errors": lambda b: prep.clear_errors(),
         "sim-speed":    lambda b: prep.simulation_speed(b["speed"]),
+        "home":         lambda b: start_home(),
     }
 
     class H(BaseHTTPRequestHandler):

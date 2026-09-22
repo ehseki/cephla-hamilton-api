@@ -112,6 +112,12 @@ main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;
 .log .m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .log .l.open .m{white-space:pre-wrap;word-break:break-all}
 .chips{display:flex;gap:4px}
+.axes{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.ax{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:9px;background:var(--panel2);border:1px solid var(--line);font-size:13px}
+.ax .dot{flex:none}
+.ax.home .dot{background:var(--good);box-shadow:0 0 8px var(--good)}
+.ax.away .dot{background:var(--warn)}
+.ax.away{border-color:color-mix(in srgb,var(--warn) 40%,var(--line))}
 .chip{font:600 11px var(--mono);padding:2px 8px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;text-transform:none;letter-spacing:0}
 .chip.on{background:var(--panel2);color:var(--text);border-color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -208,6 +214,15 @@ dialog pre{max-height:320px;overflow:auto;background:var(--panel2);padding:10px;
     </section>
 
     <section class="card">
+      <h2>Axes <span class="spacer"></span><span class="toggle" id="doorState"></span></h2>
+      <div class="body">
+        <div class="axes" id="axes"><span class="muted">Reading sensors…</span></div>
+        <div class="controls"><button class="btn warn" id="homeBtn">Home all axes</button>
+          <span class="muted" id="homeNote">The API only exposes whole-instrument homing.</span></div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>Errors <span class="spacer"></span><button class="btn sm ghost" id="errClear">Clear all</button></h2>
       <div class="body" id="errs"><div class="okmsg"><span class="dot" style="background:var(--good)"></span>No pending errors</div></div>
     </section>
@@ -247,6 +262,15 @@ dialog pre{max-height:320px;overflow:auto;background:var(--panel2);padding:10px;
     <input id="rnConfirm" placeholder="Type RUN to confirm" autocomplete="off">
   </div>
   <div class="foot"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn bad solid" id="rnGo" value="ok" disabled>Start real run</button></div>
+</form></dialog>
+
+<dialog id="dlgHome"><form method="dialog">
+  <h3>Home all axes</h3>
+  <div class="body">
+    <span><span class="danger-note">The gantry and both channels will move to their home positions.</span> Keep hands out of the deck. The door must be closed.</span>
+    <input id="hmConfirm" placeholder="Type HOME to confirm" autocomplete="off">
+  </div>
+  <div class="foot"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn warn" id="hmGo" value="ok" disabled>Home now</button></div>
 </form></dialog>
 
 <dialog id="dlgView"><form method="dialog">
@@ -320,6 +344,7 @@ async function refresh() {
   renderControls(st, run);
   renderErrors(S.errors || []);
   renderKV();
+  renderAxes();
   if (S.lighting) $("#lightMode").textContent = `deck lights: ${S.lighting.deckLightsSetting}`;
 }
 
@@ -356,6 +381,32 @@ function renderKV() {
   ];
   $("#kv").innerHTML = rows.map(([k,v]) => `<dt>${k}</dt><dd title="${esc(v)}">${esc(v ?? "—")}</dd>`).join("");
 }
+
+/* ---------- axes / homing ---------- */
+let homing = false;
+function renderAxes() {
+  const ax = S.axes, sn = S.sensors || {};
+  if (ax) {
+    const html = Object.entries(ax).map(([k, v]) => `<div class="ax ${v ? "home" : "away"}"><span class="dot"></span>${esc(k)}<span class="spacer"></span><span class="muted">${v ? "home" : "—"}</span></div>`).join("");
+    if ($("#axes").innerHTML !== html) $("#axes").innerHTML = html;
+  }
+  const doorOpen = sn.isEnclosurePresent && !sn.isDoorClosed;
+  $("#doorState").textContent = sn.isEnclosurePresent ? (doorOpen ? "door OPEN" : "door closed") : "";
+  $("#doorState").style.color = doorOpen ? "var(--warn)" : "";
+  const busy = (S.run?.stateName || S.global) !== "Idle";
+  const allHome = ax && Object.values(ax).every(Boolean);
+  if (homing && allHome) { homing = false; toast("All axes home", "good"); }
+  $("#homeBtn").disabled = homing || busy || doorOpen || (S.errors || []).length > 0;
+  $("#homeNote").textContent = homing ? "Homing…" : doorOpen ? "Close the door to home." : busy ? "Instrument busy." :
+    (S.errors || []).length ? "Handle pending errors first." : allHome ? "All axes at home." : "Homes every axis in one go (the API has no per-axis homing).";
+}
+$("#homeBtn").onclick = () => { $("#hmConfirm").value = ""; $("#hmGo").disabled = true; $("#dlgHome").showModal(); $("#hmConfirm").focus(); };
+$("#hmConfirm").oninput = e => $("#hmGo").disabled = e.target.value.trim() !== "HOME";
+$("#dlgHome").onclose = async () => {
+  if ($("#dlgHome").returnValue !== "ok") return;
+  homing = true; renderAxes();
+  try { await act("home", {}, "Homing started"); } catch { homing = false; renderAxes(); }
+};
 
 /* ---------- protocols ---------- */
 async function loadProtocols() {
@@ -501,6 +552,9 @@ function connectEvents() {
       if (code === "finished") { toast("Run finished", "good"); loadRuns(); }
       refresh();
     }
+    if (live && ev.msg?.code === "home-failed") { homing = false; toast("Homing failed: " + ev.msg.error, "bad"); refresh(); }
+    if (live && ev.msg?.code === "home-finished") { homing = false;
+      toast(ev.msg.missing?.length ? `Initialize done; not at home: ${ev.msg.missing.join(", ")}` : "All axes home", ev.msg.missing?.length ? "" : "good"); refresh(); }
     if (ev.ch === "errors" && live && typeof ev.msg === "object") { toast("Instrument error: " + summarize(ev.msg).slice(0, 120), "bad"); refresh(); }
   };
 }
