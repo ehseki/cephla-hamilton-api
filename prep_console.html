@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prep Cockpit</title>
+<style>
+:root{
+  --bg:#0b0e13; --panel:#121720; --panel2:#171d28; --line:#232b39; --text:#e6ebf2; --muted:#8a96a8; --faint:#5b6678;
+  --accent:#4cc2ff; --accent-ink:#04121c; --good:#3ddc97; --warn:#ffb547; --bad:#ff5d6c; --info:#7aa2ff;
+  --glow:0 0 0 1px rgba(76,194,255,.25), 0 8px 30px rgba(76,194,255,.08);
+  --mono:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace;
+  --sans:"Segoe UI Variable","Segoe UI",system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#eef1f5; --panel:#ffffff; --panel2:#f6f8fb; --line:#dde3ec; --text:#141a24; --muted:#5d6878; --faint:#9aa4b3;
+    --accent:#0a84d6; --accent-ink:#fff; --glow:0 0 0 1px rgba(10,132,214,.2), 0 8px 24px rgba(20,30,50,.06); color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#eef1f5; --panel:#ffffff; --panel2:#f6f8fb; --line:#dde3ec; --text:#141a24; --muted:#5d6878; --faint:#9aa4b3;
+  --accent:#0a84d6; --accent-ink:#fff; --glow:0 0 0 1px rgba(10,132,214,.2), 0 8px 24px rgba(20,30,50,.06); color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 var(--sans)}
+button{font:inherit;color:inherit}
+a{color:var(--accent)}
+header{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:14px;padding:12px 20px;
+  background:color-mix(in srgb,var(--bg) 86%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.brand svg{flex:none}
+.brand b{font-size:15px;letter-spacing:.2px}
+.brand small{display:block;color:var(--muted);font:12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:5px 12px;border-radius:999px;font-weight:600;font-size:13px;
+  background:var(--panel2);border:1px solid var(--line)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--faint)}
+.pill[data-tone=good] .dot{background:var(--good);box-shadow:0 0 10px var(--good);animation:pulse 1.6s infinite}
+.pill[data-tone=warn] .dot{background:var(--warn)}
+.pill[data-tone=bad] .dot{background:var(--bad);animation:pulse .8s infinite}
+.pill[data-tone=info] .dot{background:var(--info);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.35}}
+.links{display:flex;gap:6px;align-items:center;color:var(--muted);font-size:12px}
+.links .dot{width:7px;height:7px}
+.links .on{background:var(--good)}
+.btn{border:1px solid var(--line);background:var(--panel2);padding:7px 13px;border-radius:9px;cursor:pointer;font-weight:600;
+  transition:transform .05s, border-color .15s, background .15s;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.good{background:var(--good);border-color:var(--good);color:#04160e}
+.btn.warn{background:var(--warn);border-color:var(--warn);color:#1d1203}
+.btn.bad{background:transparent;border-color:var(--bad);color:var(--bad)}
+.btn.bad.solid{background:var(--bad);color:#fff}
+.btn.ghost{background:transparent}
+.btn.sm{padding:4px 10px;font-size:12px;border-radius:7px}
+main{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px;padding:16px 20px 40px;max-width:1500px;margin:0 auto}
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.card>h2{margin:0;display:flex;align-items:center;gap:10px;padding:12px 16px;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;
+  color:var(--muted);border-bottom:1px solid var(--line)}
+.card>h2 .spacer{flex:1}
+.card>h2 .btn,.card>h2 .toggle,.card>h2 .chip{text-transform:none;letter-spacing:0}
+.body{padding:14px 16px}
+.cam{position:relative;background:#000;aspect-ratio:2592/1944}
+.cam img{width:100%;height:100%;object-fit:contain;display:block;cursor:zoom-in;transition:opacity .25s}
+.cam .stamp{position:absolute;left:10px;bottom:10px;font:12px var(--mono);color:#cfe;background:rgba(0,0,0,.55);padding:3px 8px;border-radius:6px}
+.cam .scan{position:absolute;inset:0;pointer-events:none;background:linear-gradient(transparent 0,rgba(76,194,255,.18) 50%,transparent 100%);
+  height:30%;animation:scan 1.4s linear infinite;display:none}
+.cam.busy .scan{display:block}
+@keyframes scan{from{transform:translateY(-100%)}to{transform:translateY(340%)}}
+.cam .empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted)}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.toggle{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;cursor:pointer;user-select:none}
+.toggle input{accent-color:var(--accent)}
+.bigstate{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.bigstate .s{font-size:30px;font-weight:700;letter-spacing:-.5px}
+.bigstate .tag{font:600 11px var(--mono);padding:3px 7px;border-radius:5px;background:var(--warn);color:#1d1203}
+.proto{color:var(--muted);margin-top:2px;min-height:1.4em}
+.bar{height:8px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);overflow:hidden;margin:14px 0 6px}
+.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--good));transition:width .8s}
+.meta{display:flex;justify-content:space-between;font:12px var(--mono);color:var(--muted)}
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-family:var(--mono);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search{width:100%;padding:8px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit;margin-bottom:10px}
+.list{display:flex;flex-direction:column;gap:6px;max-height:330px;overflow:auto}
+.row{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;background:var(--panel2);border:1px solid transparent}
+.row:hover{border-color:var(--line)}
+.row .id{font:12px var(--mono);color:var(--faint);width:44px;flex:none}
+.row .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.sw{width:34px;height:34px;border-radius:10px;border:2px solid var(--line);cursor:pointer;position:relative}
+.sw:hover{transform:scale(1.07)}
+.sliders{display:grid;grid-template-columns:18px 1fr 36px;gap:8px 10px;align-items:center;font:12px var(--mono);color:var(--muted)}
+.sliders input{width:100%}
+.preview{height:10px;border-radius:99px;margin:12px 0;border:1px solid var(--line)}
+.err{border:1px solid color-mix(in srgb,var(--bad) 45%,transparent);background:color-mix(in srgb,var(--bad) 8%,var(--panel));border-radius:10px;padding:10px 12px;margin-bottom:8px}
+.err b{color:var(--bad)}
+.err p{margin:4px 0 8px;color:var(--muted)}
+.okmsg{color:var(--muted);display:flex;align-items:center;gap:8px}
+.log{font:12px/1.5 var(--mono);height:300px;overflow:auto;padding:8px 0}
+.log .l{display:grid;grid-template-columns:auto 60px 1fr;gap:10px;padding:2px 16px;cursor:pointer}
+.log .l:hover{background:var(--panel2)}
+.log .t{color:var(--faint)}
+.log .c{font-weight:700}
+.log .c.events{color:var(--info)} .log .c.errors{color:var(--bad)} .log .c.console{color:var(--good)} .log .c.system{color:var(--warn)}
+.log .m{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.log .l.open .m{white-space:pre-wrap;word-break:break-all}
+.chips{display:flex;gap:4px}
+.chip{font:600 11px var(--mono);padding:2px 8px;border-radius:99px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;text-transform:none;letter-spacing:0}
+.chip.on{background:var(--panel2);color:var(--text);border-color:var(--accent)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px}
+td.r{font-family:var(--mono)}
+.res-Completed,.res-Success{color:var(--good)} .res-Aborted,.res-Error,.res-Failed{color:var(--bad)}
+dialog{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:16px;padding:0;width:min(460px,calc(100vw - 32px));box-shadow:0 30px 80px rgba(0,0,0,.5)}
+dialog::backdrop{background:rgba(3,6,10,.6);backdrop-filter:blur(3px)}
+dialog h3{margin:0;padding:16px 18px;border-bottom:1px solid var(--line);font-size:15px}
+dialog .body{display:flex;flex-direction:column;gap:10px}
+dialog input{padding:9px 11px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font:inherit}
+dialog .foot{display:flex;justify-content:flex-end;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+dialog pre{max-height:320px;overflow:auto;background:var(--panel2);padding:10px;border-radius:9px;font:12px var(--mono);margin:0;white-space:pre-wrap}
+.danger-note{color:var(--bad);font-weight:600}
+#zoom{width:min(96vw,1600px)} #zoom img{width:100%;display:block}
+.toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:50}
+.toast div{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);padding:10px 14px;border-radius:10px;box-shadow:var(--glow);max-width:380px;animation:in .2s}
+.toast div.bad{border-left-color:var(--bad)} .toast div.good{border-left-color:var(--good)}
+@keyframes in{from{transform:translateY(10px);opacity:0}}
+.muted{color:var(--muted)}
+.load-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.load-grid div{background:var(--panel2);border:1px solid var(--line);border-radius:9px;padding:8px;font-size:12px;min-height:64px}
+.load-grid b{display:block;font:700 11px var(--mono);color:var(--accent)}
+@media (max-width:980px){main{grid-template-columns:1fr;padding:12px 16px 40px}header{flex-wrap:wrap;padding:10px 16px}.links{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="1" y="1" width="30" height="30" rx="8" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      <path d="M11 7v9a5 5 0 0 0 10 0V7" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="16" cy="24" r="2.4" fill="var(--good)"/>
+    </svg>
+    <div><b>Microlab Prep</b><small id="inst">connecting…</small></div>
+  </div>
+  <span class="pill" id="statePill" data-tone=""><span class="dot"></span><span id="stateText">—</span></span>
+  <div class="spacer"></div>
+  <div class="links" title="Live websocket links to the instrument">
+    <span class="dot" id="wsE"></span>events <span class="dot" id="wsX"></span>errors <span class="dot" id="wsS"></span>console
+  </div>
+  <button class="btn sm ghost" id="themeBtn" title="Toggle theme">◐</button>
+  <button class="btn sm" id="authBtn">Log in</button>
+</header>
+
+<main>
+  <div class="col">
+    <section class="card">
+      <h2>Deck camera <span class="spacer"></span>
+        <label class="toggle"><input type="checkbox" id="camLive"> live</label>
+        <label class="toggle"><input type="checkbox" id="camRect" checked> rectify</label>
+        <button class="btn sm" id="camSnap">Snap</button>
+        <a class="btn sm ghost" id="camFull" href="/api/camera?w=99999" target="_blank" title="Full-resolution frame">Full-res ↗</a>
+      </h2>
+      <div class="cam" id="cam"><div class="empty">Press Snap to grab the deck</div><img id="camImg" alt="Deck camera" hidden><div class="scan"></div><span class="stamp" id="camStamp" hidden></span></div>
+    </section>
+
+    <section class="card">
+      <h2>Live event stream <span class="spacer"></span>
+        <span class="chips" id="chips">
+          <button class="chip on" data-ch="events">events</button><button class="chip on" data-ch="errors">errors</button>
+          <button class="chip on" data-ch="console">console</button><button class="chip on" data-ch="system">system</button>
+        </span>
+        <button class="btn sm ghost" id="logClear">Clear</button>
+      </h2>
+      <div class="log" id="log"></div>
+    </section>
+
+    <section class="card">
+      <h2>Run history <span class="spacer"></span><button class="btn sm ghost" id="runsBtn">Refresh</button></h2>
+      <div class="body" style="overflow:auto"><table><thead><tr><th>Protocol</th><th>Started</th><th>Result</th><th>User</th><th></th></tr></thead><tbody id="runs"><tr><td colspan="5" class="muted">Loading…</td></tr></tbody></table></div>
+    </section>
+  </div>
+
+  <div class="col">
+    <section class="card">
+      <h2>Run</h2>
+      <div class="body">
+        <div class="bigstate"><span class="s" id="runState">—</span><span class="tag" id="simTag" hidden>SIMULATION</span></div>
+        <div class="proto" id="runProto">&nbsp;</div>
+        <div class="bar"><i id="runBar"></i></div>
+        <div class="meta"><span id="runStep">step —</span><span id="runEta">—</span></div>
+        <div class="controls" id="runControls"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Protocols <span class="spacer"></span><button class="btn sm ghost" id="protoRefresh">Refresh</button></h2>
+      <div class="body">
+        <input class="search" id="protoSearch" placeholder="Filter protocols…">
+        <div class="list" id="protos"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Errors <span class="spacer"></span><button class="btn sm ghost" id="errClear">Clear all</button></h2>
+      <div class="body" id="errs"><div class="okmsg"><span class="dot" style="background:var(--good)"></span>No pending errors</div></div>
+    </section>
+
+    <section class="card">
+      <h2>Enclosure lighting <span class="spacer"></span><button class="btn sm ghost" id="lightAuto">Automatic</button></h2>
+      <div class="body">
+        <div class="swatches" id="swatches"></div>
+        <div class="sliders" id="sliders"></div>
+        <div class="preview" id="lightPreview"></div>
+        <div class="toolbar"><button class="btn primary" id="lightApply">Apply</button><span class="muted" id="lightMode"></span></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Instrument</h2>
+      <div class="body"><dl class="kv" id="kv"></dl></div>
+    </section>
+  </div>
+</main>
+
+<dialog id="dlgLogin"><form method="dialog">
+  <h3>Log in to the Prep</h3>
+  <div class="body">
+    <span class="muted">Same account as the touchscreen. The token stays in the local console server.</span>
+    <input id="lgUser" placeholder="Username" autocomplete="username" required>
+    <input id="lgPass" placeholder="Password" type="password" autocomplete="current-password" required>
+    <span class="danger-note" id="lgErr"></span>
+  </div>
+  <div class="foot"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn primary" id="lgGo" value="ok">Log in</button></div>
+</form></dialog>
+
+<dialog id="dlgRun"><form method="dialog">
+  <h3 id="rnTitle">Start run</h3>
+  <div class="body">
+    <span id="rnText"></span>
+    <input id="rnConfirm" placeholder="Type RUN to confirm" autocomplete="off">
+  </div>
+  <div class="foot"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn bad solid" id="rnGo" value="ok" disabled>Start real run</button></div>
+</form></dialog>
+
+<dialog id="dlgView"><form method="dialog">
+  <h3 id="vwTitle">Instrument message</h3>
+  <div class="body"><div id="vwText"></div><pre id="vwRaw" hidden></pre></div>
+  <div class="foot" id="vwBtns"></div>
+</form></dialog>
+
+<dialog id="dlgLoad"><form method="dialog">
+  <h3>Load instructions</h3>
+  <div class="body"><div class="load-grid" id="ldGrid"></div><pre id="ldRaw"></pre></div>
+  <div class="foot"><button class="btn ghost" value="close">Close</button></div>
+</form></dialog>
+
+<dialog id="zoom" onclick="this.close()"><img id="zoomImg" alt="Deck camera, full size"></dialog>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let S = {}, protocols = [], pendingAuth = null;
+
+function toast(msg, kind="") {
+  const d = document.createElement("div"); d.className = kind; d.textContent = msg;
+  $("#toast").append(d); setTimeout(() => d.remove(), 5000);
+}
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)};
+  const r = await fetch("/api/" + path, opt);
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) {
+    return new Promise((res, rej) => { pendingAuth = () => api(path, body).then(res, rej); openLogin(); });
+  }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+async function act(name, body={}, okMsg) {
+  try { const r = await api(name, body); if (okMsg) toast(okMsg, "good"); refresh(); return r; }
+  catch (e) { toast(`${name}: ${e.message}`, "bad"); throw e; }
+}
+
+/* ---------- state polling ---------- */
+const TONES = {Idle:"", Running:"good", Scheduling:"info", Scheduled:"info", Loading:"info", Reloading:"info",
+               Pausing:"warn", Paused:"warn", Aborting:"bad", ErrorHandling:"bad"};
+const validDate = s => s && !s.startsWith("0001") ? new Date(s) : null;
+const fmtDur = ms => { if (ms < 0) ms = 0; const s = Math.round(ms/1000), h = Math.floor(s/3600), m = Math.floor(s%3600/60);
+  return h ? `${h}h ${String(m).padStart(2,"0")}m` : `${m}m ${String(s%60).padStart(2,"0")}s`; };
+
+async function refresh() {
+  try { S = await (await fetch("/api/state")).json(); } catch { $("#stateText").textContent = "console offline"; return; }
+  const run = S.run || {}, st = run.stateName || S.global || "—";
+  $("#statePill").dataset.tone = TONES[st] ?? "";
+  $("#stateText").textContent = st;
+  const inst = S.instrument;
+  $("#inst").textContent = inst ? `${inst.instrumentName} · ${S.ip}` : S.ip;
+  $("#authBtn").textContent = S.user ? `${S.user} · log out` : "Log in";
+  [["#wsE","events"],["#wsX","errors"]].forEach(([id,k]) => $(id).classList.toggle("on", !!S.ws?.[k]));
+
+  // run card
+  $("#runState").textContent = st;
+  $("#simTag").hidden = !run.isSimulation || !run.isRunInProgress;
+  $("#runProto").textContent = run.isRunInProgress ? `${run.protocolName ?? "?"}  ·  #${run.protocolId}` : "No run in progress";
+  const t0 = validDate(run.startTime), t1 = validDate(run.estimatedEndTime);
+  if (run.isRunInProgress && t0 && t1 && t1 > t0) {
+    const pct = Math.min(100, Math.max(0, (Date.now() - t0) / (t1 - t0) * 100));
+    $("#runBar").style.width = pct.toFixed(1) + "%";
+    $("#runEta").textContent = `${fmtDur(t1 - Date.now())} left · ends ${t1.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}`;
+  } else { $("#runBar").style.width = run.isRunInProgress ? "3%" : "0"; $("#runEta").textContent = "—"; }
+  $("#runStep").textContent = run.isRunInProgress ? `step ${run.currentStep ?? "—"}` : "step —";
+  renderControls(st, run);
+  renderErrors(S.errors || []);
+  renderKV();
+  if (S.lighting) $("#lightMode").textContent = `deck lights: ${S.lighting.deckLightsSetting}`;
+}
+
+function renderControls(st, run) {
+  const c = $("#runControls"), b = [];
+  const sim = !!run.isSimulation, pid = run.protocolId;
+  if (st === "Loading") {
+    b.push(`<button class="btn" data-a="load-view">Load instructions</button>`);
+    b.push(`<button class="btn good" data-a="load-go">Deck loaded → start</button>`);
+  }
+  if (st === "Running") b.push(`<button class="btn warn" data-a="pause">Pause</button>`);
+  if (st === "Paused") b.push(`<button class="btn good" data-a="resume">Resume</button>`);
+  if (run.isRunInProgress && !["Aborting","Idle"].includes(st)) b.push(`<button class="btn bad" data-a="abort">Abort</button>`);
+  if (!run.isRunInProgress) b.push(`<span class="muted">Pick a protocol below. Simulate first.</span>`);
+  const html = b.join("");
+  if (c.innerHTML !== html) c.innerHTML = html;
+  c.onclick = async e => {
+    const a = e.target.dataset?.a; if (!a) return;
+    if (a === "load-view") return showLoad();
+    if (a === "load-go") return act("load-complete", {id: pid, simulate: sim}, "Loading confirmed, run starting");
+    if (a === "abort" && !confirm("Abort the current run?")) return;
+    act(a, {}, `${a} sent`);
+  };
+}
+
+function renderKV() {
+  const i = S.instrument || {}, c = S.connection || {}, h = S.hhc || {}, rdy = S.ready || {};
+  const rows = [
+    ["Serial", i.serialNumber], ["Controller", i.endpoint], ["Enclosure", i.isEnclosurePresent ? "present" : "none"],
+    ["Thermal", (i.thermalDeviceNames || []).find(t => t.id === i.thermalDevice)?.displayName ?? "—"],
+    ["HHC temp", h.currentTemperature != null ? `${h.currentTemperature} °C → ${h.targetTemperature} °C` : "—"],
+    ["Controlled by", c.isControlled ? `${c.controllerMachineName}` : "nobody"],
+    ["Services", (rdy.requiredServices || []).map(s => (s.isRunning ? "●" : "○")).join(" ") + ` ${rdy.isServerReady ? "ready" : "not ready"}`],
+  ];
+  $("#kv").innerHTML = rows.map(([k,v]) => `<dt>${k}</dt><dd title="${esc(v)}">${esc(v ?? "—")}</dd>`).join("");
+}
+
+/* ---------- protocols ---------- */
+async function loadProtocols() {
+  try { protocols = await (await fetch("/api/protocols")).json(); } catch { protocols = []; }
+  renderProtocols();
+}
+function renderProtocols() {
+  const q = $("#protoSearch").value.toLowerCase();
+  const busy = S.run?.isRunInProgress;
+  $("#protos").innerHTML = protocols.filter(p => p.isVisible !== false && p.name.toLowerCase().includes(q)).map(p => `
+    <div class="row"><span class="id">#${p.protocolId}</span><span class="name" title="${esc(p.name)}">${esc(p.name)}</span>
+      <button class="btn sm" data-sim="${p.protocolId}" ${busy?"disabled":""}>Simulate</button>
+      <button class="btn sm bad" data-real="${p.protocolId}" ${busy?"disabled":""}>Run</button></div>`).join("")
+    || `<span class="muted">No protocols</span>`;
+}
+$("#protos").onclick = e => {
+  const sim = e.target.dataset.sim, real = e.target.dataset.real;
+  if (sim) act("run", {id: +sim, simulate: true}, "Simulation scheduled, watch the Run card");
+  if (real) {
+    const p = protocols.find(x => x.protocolId == real);
+    $("#rnTitle").textContent = `Run “${p.name}” for real`;
+    $("#rnText").innerHTML = `<span class="danger-note">The pipetting arm will move.</span> Make sure the deck is clear of hands and loaded per the protocol, and the lid is closed.`;
+    $("#rnConfirm").value = ""; $("#rnGo").disabled = true;
+    $("#dlgRun").dataset.id = real; $("#dlgRun").showModal(); $("#rnConfirm").focus();
+  }
+};
+$("#rnConfirm").oninput = e => $("#rnGo").disabled = e.target.value.trim() !== "RUN";
+$("#dlgRun").onclose = () => { if ($("#dlgRun").returnValue === "ok") act("run", {id: +$("#dlgRun").dataset.id, simulate: false}, "Real run scheduled"); };
+$("#protoSearch").oninput = renderProtocols;
+$("#protoRefresh").onclick = loadProtocols;
+
+/* ---------- errors ---------- */
+let lastErrKey = "";
+function renderErrors(errs) {
+  const key = JSON.stringify(errs.map(e => e.id));
+  if (key === lastErrKey) return; lastErrKey = key;
+  $("#errs").innerHTML = errs.length ? errs.map((e, i) => `
+    <div class="err"><b>${esc(e.title || "Error")}</b> <span class="muted">${esc(e.severity || "")}</span>
+      <p>${esc(e.message || "")}</p>
+      <div class="toolbar">${(e.errorResponses || []).map(r => `<button class="btn sm" data-i="${i}" data-r="${esc(r.response)}">${esc(r.response)}</button>`).join("")}</div></div>`).join("")
+    : `<div class="okmsg"><span class="dot" style="background:var(--good)"></span>No pending errors</div>`;
+  $("#errs").onclick = ev => { const r = ev.target.dataset.r; if (r) act("error-respond", {error: errs[+ev.target.dataset.i], response: r}, `Responded “${r}”`); };
+}
+$("#errClear").onclick = () => confirm("Clear all pending errors?") && act("clear-errors", {}, "Errors cleared");
+
+/* ---------- camera ---------- */
+let camBusy = false, camTimer = null;
+async function snap() {
+  if (camBusy) return; camBusy = true; $("#cam").classList.add("busy");
+  const rect = $("#camRect").checked ? 1 : 0;
+  try {
+    const r = await fetch(`/api/camera?rectify=${rect}&w=1400&t=${Date.now()}`);
+    if (!r.ok) throw new Error((await r.json()).error);
+    const url = URL.createObjectURL(await r.blob()), img = $("#camImg");
+    const old = img.src; img.src = url; img.hidden = false; $("#cam .empty")?.remove();
+    if (old.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(old), 2000);
+    $("#camStamp").hidden = false; $("#camStamp").textContent = new Date().toLocaleTimeString() + (rect ? " · rectified" : " · raw");
+  } catch (e) { toast("camera: " + e.message, "bad"); $("#camLive").checked = false; }
+  finally { camBusy = false; $("#cam").classList.remove("busy"); }
+}
+$("#camSnap").onclick = snap;
+$("#camLive").onchange = e => { clearInterval(camTimer); if (e.target.checked) { snap(); camTimer = setInterval(snap, 2500); } };
+$("#camRect").onchange = () => { $("#camFull").href = `/api/camera?w=99999&rectify=${$("#camRect").checked?1:0}`; snap(); };
+$("#camImg").onclick = () => { $("#zoomImg").src = $("#camImg").src; $("#zoom").showModal(); };
+
+/* ---------- lighting ---------- */
+const CH = ["r","g","b","w"], light = {r:0,g:120,b:255,w:0};
+const PRESETS = [["Cephla blue",0,120,255,0],["White",0,0,0,255],["Warm",255,140,40,60],["Red",255,0,0,0],["Green",0,255,60,0],["Violet",140,0,255,0],["Off",0,0,0,0]];
+$("#swatches").innerHTML = PRESETS.map(([n,r,g,b,w],i) => `<button class="sw" title="${n}" data-p="${i}" style="background:${rgbw(r,g,b,w)}"></button>`).join("");
+$("#swatches").onclick = e => { const p = PRESETS[e.target.dataset.p]; if (!p) return; CH.forEach((c,i) => light[c] = p[i+1]); syncSliders(); act("light", light, `Lights: ${p[0]}`); };
+$("#sliders").innerHTML = CH.map(c => `<span>${c.toUpperCase()}</span><input type="range" min="0" max="255" id="sl_${c}"><span id="sv_${c}"></span>`).join("");
+CH.forEach(c => $("#sl_"+c).oninput = e => { light[c] = +e.target.value; syncSliders(); });
+function rgbw(r,g,b,w){ const k = w/255*0.8; const m = v => Math.round(v + (255 - v) * k); return `rgb(${m(r)},${m(g)},${m(b)})`; }
+function syncSliders(){ CH.forEach(c => { $("#sl_"+c).value = light[c]; $("#sv_"+c).textContent = light[c]; });
+  $("#lightPreview").style.background = rgbw(light.r,light.g,light.b,light.w); $("#lightPreview").style.boxShadow = `0 0 24px ${rgbw(light.r,light.g,light.b,light.w)}`; }
+syncSliders();
+$("#lightApply").onclick = () => act("light", light, "Lighting applied");
+$("#lightAuto").onclick = () => act("light-auto", {}, "Lighting back to automatic");
+
+/* ---------- load instructions ---------- */
+async function showLoad() {
+  try {
+    const items = await (await fetch("/api/load-instructions")).json();
+    $("#ldGrid").innerHTML = (Array.isArray(items) ? items : []).map(it => {
+      const pos = it.deckPosition ?? it.position ?? it.positionId ?? "?";
+      const what = it.labwareName ?? it.name ?? it.displayName ?? it.labware?.name ?? "";
+      return `<div><b>POS ${esc(pos)}</b>${esc(what)}</div>`; }).join("");
+    $("#ldRaw").textContent = JSON.stringify(items, null, 2);
+    $("#dlgLoad").showModal();
+  } catch (e) { toast("load instructions: " + e.message, "bad"); }
+}
+
+/* ---------- message boxes from the events socket ---------- */
+function findKey(o, re, depth=0) {
+  if (!o || typeof o !== "object" || depth > 6) return undefined;
+  for (const [k, v] of Object.entries(o)) { if (re.test(k) && (typeof v === "string" || typeof v === "number")) return v; }
+  for (const v of Object.values(o)) { const f = findKey(v, re, depth+1); if (f !== undefined) return f; }
+}
+function maybeDialog(msg) {
+  const code = String(msg?.code || "").toLowerCase();
+  if (!["messagebox", "maintenancedata"].includes(code)) return;
+  const viewId = findKey(msg.data, /^view_?id$/i) ?? findKey(msg.data, /^id$/i);
+  if (!viewId) return;
+  const title = findKey(msg.data, /^(title|caption|header)$/i) || "Instrument message";
+  const text = findKey(msg.data, /^(message|text|content|description)$/i) || msg.description || "";
+  let opts = findKey(msg.data, /^(buttons|viewresults|results)$/i);
+  opts = typeof opts === "string" ? opts.split(/[,|]/).map(s => s.trim()).filter(Boolean) : null;
+  if (!opts?.length) opts = code === "maintenancedata" ? ["Ok", "Cancel"] : ["Ok", "Cancel", "Yes", "No", "Abort"];
+  $("#vwTitle").textContent = title; $("#vwText").textContent = text;
+  $("#vwRaw").textContent = JSON.stringify(msg.data, null, 2); $("#vwRaw").hidden = !!text;
+  $("#vwBtns").innerHTML = opts.map((o,i) => `<button class="btn ${i===0?"primary":""}" value="${esc(o)}">${esc(o)}</button>`).join("");
+  $("#dlgView").onclose = () => { const r = $("#dlgView").returnValue; if (r) act("close-view", {viewId: String(viewId), result: r}, `Answered “${r}”`); };
+  if (!$("#dlgView").open) $("#dlgView").showModal();
+}
+
+/* ---------- event log (SSE) ---------- */
+const shown = new Set(["events","errors","console","system"]);
+function summarize(m) {
+  if (typeof m === "string") return m;
+  if (m?.code) return `${m.code}${m.description ? " · " + m.description : ""}${m.data != null ? " · " + JSON.stringify(m.data) : ""}${m.action ? " " + m.action + " " + JSON.stringify(m.args) : ""}`;
+  return JSON.stringify(m);
+}
+function logLine(ev) {
+  const d = document.createElement("div"); d.className = "l"; d.dataset.ch = ev.ch;
+  d.hidden = !shown.has(ev.ch);
+  d.innerHTML = `<span class="t">${new Date(ev.t*1000).toLocaleTimeString([], {hour12:false})}</span><span class="c ${ev.ch}">${ev.ch}</span><span class="m">${esc(summarize(ev.msg))}</span>`;
+  d.onclick = () => { d.classList.toggle("open"); d.querySelector(".m").textContent = d.classList.contains("open") ? JSON.stringify(ev.msg, null, 2) : summarize(ev.msg); };
+  const log = $("#log"), stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.append(d); while (log.children.length > 500) log.firstChild.remove();
+  if (stick) log.scrollTop = log.scrollHeight;
+}
+let booted = false;
+function connectEvents() {
+  const es = new EventSource("/api/events");
+  es.onopen = () => $("#wsS").classList.add("on");
+  es.onerror = () => $("#wsS").classList.remove("on");
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data); logLine(ev);
+    const live = ev.t * 1000 > Date.now() - 10000;   // don't pop dialogs for replayed history
+    if (ev.ch === "events" && live) {
+      maybeDialog(ev.msg);
+      const code = String(ev.msg?.code || "").toLowerCase();
+      if (code === "finished") { toast("Run finished", "good"); loadRuns(); }
+      refresh();
+    }
+    if (ev.ch === "errors" && live && typeof ev.msg === "object") { toast("Instrument error: " + summarize(ev.msg).slice(0, 120), "bad"); refresh(); }
+  };
+}
+$("#chips").onclick = e => { const ch = e.target.dataset.ch; if (!ch) return; e.target.classList.toggle("on");
+  shown.has(ch) ? shown.delete(ch) : shown.add(ch); document.querySelectorAll(`.l[data-ch="${ch}"]`).forEach(l => l.hidden = !shown.has(ch)); };
+$("#logClear").onclick = () => $("#log").innerHTML = "";
+
+/* ---------- run history ---------- */
+async function loadRuns() {
+  try {
+    const runs = await (await fetch("/api/runs")).json();
+    $("#runs").innerHTML = (Array.isArray(runs) ? runs : []).slice().sort((a,b) => (b.startTime||"").localeCompare(a.startTime||"")).slice(0, 25).map(r => `
+      <tr><td>${esc(r.protocolName)}</td><td class="r">${validDate(r.startTime)?.toLocaleString([], {dateStyle:"short", timeStyle:"short"}) ?? "—"}</td>
+      <td class="res-${esc(r.runResult)}">${esc(r.runResult)}</td><td>${esc(r.userName)}</td>
+      <td><a href="/api/runs/${encodeURIComponent(r.id)}/pdf" target="_blank">PDF</a></td></tr>`).join("") || `<tr><td colspan="5" class="muted">No runs yet</td></tr>`;
+  } catch (e) { $("#runs").innerHTML = `<tr><td colspan="5" class="muted">${esc(e.message)}</td></tr>`; }
+}
+$("#runsBtn").onclick = loadRuns;
+
+/* ---------- auth + theme ---------- */
+function openLogin(){ $("#lgErr").textContent = ""; $("#lgPass").value = ""; $("#dlgLogin").showModal(); $("#lgUser").focus(); }
+$("#authBtn").onclick = () => S.user ? act("logout", {}, "Logged out") : openLogin();
+$("#dlgLogin").onclose = async () => {
+  if ($("#dlgLogin").returnValue !== "ok") { pendingAuth = null; return; }
+  try {
+    const r = await fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({username: $("#lgUser").value, password: $("#lgPass").value})});
+    const j = await r.json(); $("#lgPass").value = "";
+    if (!r.ok) throw new Error(j.error || "login failed");
+    toast(`Logged in as ${j.result.user}`, "good"); refresh();
+    if (pendingAuth) { const f = pendingAuth; pendingAuth = null; f(); }
+  } catch (e) { $("#lgErr").textContent = e.message; $("#dlgLogin").showModal(); }
+};
+$("#themeBtn").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+  document.documentElement.dataset.theme = cur === "light" ? "dark" : "light";
+  try { localStorage.setItem("prep-theme", document.documentElement.dataset.theme); } catch {}
+};
+try { const t = localStorage.getItem("prep-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}
+
+/* ---------- boot ---------- */
+refresh().then(() => { loadProtocols(); loadRuns(); snap(); });
+setInterval(refresh, 2000);
+setInterval(renderProtocols, 5000);
+connectEvents();
+</script>
+</body>
+</html>
