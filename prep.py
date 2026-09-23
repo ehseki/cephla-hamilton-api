@@ -30,6 +30,7 @@ CLI:
     python prep.py axes                      # home-sensor state of every axis
     python prep.py home                      # home all axes (asks for confirmation)
     python prep.py home --allow-door-open    # ...even with the enclosure door open
+    python prep.py home --again              # if already homed, re-run without asking
 """
 from __future__ import annotations
 
@@ -214,6 +215,28 @@ class Prep:
                 ch = ind.get(f"{side}Channel") or {}
                 out.update({f"{side.title()} {name}": bool(ch.get(k)) for k, name in parts})
         return out
+
+    def is_initialized(self) -> bool:
+        """True once the instrument has homed since power-up (initialize is a no-op until then)."""
+        return bool(self.power_ready())
+
+    def traces(self, limit: int = 300, sources: Iterable[str] = ()):
+        params = [("offset", 0), ("limit", min(limit, 1000))] + [("sources", x) for x in sources]
+        return self.get("traces", params=params).get("items", [])
+
+    def checkpoint(self) -> dict:
+        """Snapshot of the error log and trace clock, so you can see what an action caused.
+        Uses the instrument's own clock (it can differ from this laptop's)."""
+        errs = self.error_log(50).get("items", [])
+        tr = self.traces(1)
+        return {"error_ids": {e["id"] for e in errs}, "trace_time": tr[0]["date"] if tr else ""}
+
+    def since(self, cp: dict) -> dict:
+        """What happened after a checkpoint: new errors and whether a real (motion) Initialize ran."""
+        errs = [e for e in self.error_log(50).get("items", []) if e["id"] not in cp["error_ids"]]
+        mne = [t for t in self.traces(500, ["MNE"]) if t["date"] > cp["trace_time"]]
+        rehomed = any(t["message"].startswith('["Initialize",') for t in mne)
+        return {"errors": errs, "rehomed": rehomed}
 
     def home_preflight(self, allow_door_open: bool = False) -> list[str]:
         """Reasons it is not safe to home right now (empty list = OK).
@@ -423,6 +446,7 @@ def main(argv=None):
     sub.add_parser("axes")
     hp = sub.add_parser("home"); hp.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     hp.add_argument("--allow-door-open", action="store_true", help="home even if the enclosure door is open")
+    hp.add_argument("--again", action="store_true", help="if already homed, run homing again without asking")
     a = ap.parse_args(argv)
     p = Prep(a.ip)
 
@@ -481,23 +505,48 @@ def main(argv=None):
         print(f"door {'closed' if s.get('isDoorClosed') else 'OPEN'}  parked={p.is_parked()}  tips={p.has_tips()}  power-initialized={p.power_ready()}")
     elif a.cmd == "home":
         _print_axes(p.axes())
+        if p.is_initialized():
+            print("\nThe instrument is already homed (initialized since power-up).")
+            if a.again:
+                choice = "2"
+            elif a.yes:
+                choice = "1"
+            else:
+                choice = input("  [1] Use the existing home (default)\n  [2] Run homing again\nChoose 1 or 2: ").strip() or "1"
+            if choice != "2":
+                print("Using the existing home. Nothing moved.")
+                return
+            print("Note: the Prep's initialize is 'smart'. If it still considers itself initialized,\n"
+                  "it may only verify the sensors and park instead of re-homing.")
         problems = p.home_preflight(a.allow_door_open)
         if problems:
             sys.exit("not homing: " + "; ".join(problems) + ("  (use --allow-door-open to override)" if any("door" in x for x in problems) else ""))
-        door_open = not p.sensors().get("isDoorClosed")
-        if door_open:
+        if not p.sensors().get("isDoorClosed"):
             print("WARNING: the door is OPEN - keep hands and objects out of the deck.")
-        if not a.yes and input("Home ALL axes? The gantry and channels will move. Type HOME: ").strip() != "HOME":
+        if not a.yes and input("Home ALL axes? The gantry and channels may move. Type HOME: ").strip() != "HOME":
             print("cancelled"); return
+        cp = p.checkpoint()
+        t0 = time.time()
         last = [None]
         def tick(ax):
             line = "  ".join(f"{k}:{'ok' if v else '..'}" for k, v in ax.items())
             if line != last[0]:
                 print(time.strftime("%H:%M:%S"), line, flush=True); last[0] = line
-        final = _authed(p, lambda: p.home_all(on_tick=tick, allow_door_open=a.allow_door_open))
-        missing = [k for k, v in final.items() if not v]
-        print("all axes home" if not missing else f"initialize returned, but not at home sensor: {', '.join(missing)}")
-
+        _authed(p, lambda: p.home_all(on_tick=tick, allow_door_open=a.allow_door_open))
+        what = p.since(cp)
+        for e in what["errors"]:
+            print(f"  ! instrument error: {e['message']}")
+        took = time.time() - t0
+        if not p.is_initialized():
+            print("Homing did NOT complete - the instrument still reports it is not initialized."
+                  + (" Answer the error on the touchscreen (e.g. Continue), then run home again." if what["errors"] else ""))
+        elif what["rehomed"]:
+            print(f"Homed all axes ({took:.0f} s)." + (" The error(s) above were answered on the instrument." if what["errors"] else ""))
+        elif what["errors"]:
+            print("Homing did NOT run - see the error(s) above, and check the touchscreen.")
+        else:
+            print(f"The Prep was already initialized, so it only verified the sensors and parked ({took:.0f} s). Nothing was re-homed.")
+        print("(Axes reading 'not home' after this, like the dispensers, are just their parked positions.)")
 
 if __name__ == "__main__":
     try:

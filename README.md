@@ -39,6 +39,7 @@ python prep.py light-auto
 python prep.py axes                   # home sensor for every axis, plus door/tips/power
 python prep.py home                   # home all axes (checks idle/errors/door, asks you to type HOME)
 python prep.py home --allow-door-open
+python prep.py home --again           # already homed? re-run without the prompt
 ```
 
 ## Library
@@ -56,6 +57,8 @@ p.stream(lambda ch, msg: print(ch, msg))
 `GET /service-software-api/sensor-status` reports a home sensor for each axis: X, then Y, Z, squeeze and dispenser on each fitted head (front/rear independent channels, and the MPH if present). The cockpit's **Axes** panel shows them live.
 
 The API has **no per-axis homing**. `POST /instruments/initialize` homes everything at once, so both the CLI and the cockpit do "home all". They refuse to start unless the instrument is Idle and there are no pending errors. With the door open you must opt in: `--allow-door-open` on the CLI, or the "Home anyway" checkbox in the cockpit. The instrument may still enforce its own door interlock.
+
+If the Prep is already homed (`power/is-initialized` is true), `home` asks whether to **[1] use the existing home** (the default; nothing moves) or **[2] run homing again**. The Prep's initialize is "smart": it only re-homes when it considers itself uninitialized. Otherwise it just checks the sensors and parks. The CLI reads the instrument's trace log afterwards and tells you which one happened, plus any errors raised along the way (e.g. the door interlock, which you answer with Continue on the touchscreen). An axis reading "not home" after homing, such as the dispensers, is just its parked position.
 
 ## Gotchas found on the instrument
 
